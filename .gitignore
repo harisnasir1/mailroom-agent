@@ -1,0 +1,15 @@
+.venv/
+.env
+matcher.db
+runs/
+__pycache__/
+.venv/
+.env
+matcher.db
+runs/
+__pycache__/
+*.pyc
+.DS_Store
+mailbox/
+eval/gold.json
+MANIFEST.md

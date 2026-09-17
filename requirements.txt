@@ -1,0 +1,6 @@
+psycopg[binary]        # postgres driver (psycopg 3, not the old psycopg2)
+pydantic               # extract/adjudicate schemas
+tenacity               # retries with backoff
+rapidfuzz              # fuzzy client names
+python-dotenv          # load .env
+anthropic              # or openai — whichever key you'll use
