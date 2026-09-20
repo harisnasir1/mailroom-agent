@@ -51,20 +51,21 @@ Respond with JSON only.
 """
 
 
-def _has_clean_open_ref(conn: sqlite3.Connection, email_id: int) -> bool:
-    # TODO: once the orchestrator passes refscan results in memory, read
-    # from there instead of re-parsing this trace row.
+def _is_clean_open_ref(refs: list[dict]) -> bool:
+    if len(refs) != 1:
+        return False
+    ref = refs[0]
+    return ref["location"] == "new" and ref["matter_id"] is not None and ref["matter_status"] == "open"
+
+
+def _refs_from_trace(conn: sqlite3.Connection, email_id: int) -> list[dict]:
     row = conn.execute(
         "SELECT output_json FROM traces WHERE email_id = ? AND stage = 'refscan' ORDER BY id DESC LIMIT 1",
         (email_id,),
     ).fetchone()
     if row is None or row["output_json"] is None:
-        return False
-    refs = json.loads(row["output_json"]).get("refs", [])
-    if len(refs) != 1:
-        return False
-    ref = refs[0]
-    return ref["location"] == "new" and ref["matter_id"] is not None and ref["matter_status"] == "open"
+        return []
+    return json.loads(row["output_json"]).get("refs", [])
 
 
 def _sender_is_known_contact(conn: sqlite3.Connection, sender: str) -> bool:
@@ -77,9 +78,9 @@ def _sender_is_known_contact(conn: sqlite3.Connection, sender: str) -> bool:
     return row is not None
 
 
-def _qualifies_for_early_exit(conn: sqlite3.Connection, email_id: int, sender: str, injection_flag: int) -> bool:
+def _qualifies_for_early_exit(conn: sqlite3.Connection, refs: list[dict], sender: str, injection_flag: int) -> bool:
     return (
-        _has_clean_open_ref(conn, email_id)
+        _is_clean_open_ref(refs)
         and _sender_is_known_contact(conn, sender)
         and injection_flag == 0
     )
@@ -107,6 +108,32 @@ def _write_result_trace(conn: sqlite3.Connection, run_id: str, email_id: int, re
     conn.commit()
 
 
+def extract_one(
+    conn: sqlite3.Connection,
+    run_id: str,
+    email_id: int,
+    subject: str,
+    body_new: str,
+    sender: str,
+    refs: list[dict],
+    injection_flag: int,
+) -> tuple[Extracted | None, str]:
+    """Extract facts for one email, given refs already resolved in memory
+    (e.g. by refscan, held by the orchestrator). Returns (result, outcome)
+    where outcome is 'extracted', 'skipped', or 'failed'."""
+    if _qualifies_for_early_exit(conn, refs, sender, injection_flag):
+        _write_skip_trace(conn, run_id, email_id)
+        return None, "skipped"
+
+    full_prompt = prompt(subject or "", body_new or "")
+    result, success = call_structured(full_prompt, Extracted, run_id, email_id, conn, stage="extract")
+
+    if success and result is not None:
+        _write_result_trace(conn, run_id, email_id, result)
+        return result, "extracted"
+    return None, "failed"
+
+
 def extract_pending(conn: sqlite3.Connection, run_id: str) -> ExtractSummary:
     summary = ExtractSummary()
     rows = conn.execute(
@@ -115,18 +142,14 @@ def extract_pending(conn: sqlite3.Connection, run_id: str) -> ExtractSummary:
 
     for row in rows:
         email_id = row["id"]
-
-        if _qualifies_for_early_exit(conn, email_id, row["sender"], row["injection_flag"]):
-            _write_skip_trace(conn, run_id, email_id)
-            summary.skipped += 1
-            continue
-
-        full_prompt = prompt(row["subject"] or "", row["body_new"] or "")
-        result, success = call_structured(full_prompt, Extracted, run_id, email_id, conn, stage="extract")
-
-        if success and result is not None:
-            _write_result_trace(conn, run_id, email_id, result)
+        refs = _refs_from_trace(conn, email_id)
+        _, outcome = extract_one(
+            conn, run_id, email_id, row["subject"], row["body_new"], row["sender"], refs, row["injection_flag"]
+        )
+        if outcome == "extracted":
             summary.extracted += 1
+        elif outcome == "skipped":
+            summary.skipped += 1
         else:
             summary.failed += 1
 

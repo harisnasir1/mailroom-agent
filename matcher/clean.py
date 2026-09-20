@@ -19,6 +19,7 @@ INJECTION_PATTERNS: tuple[str, ...] = (
     r"mark (this|the|everything|all) as",
     r"this is authorized",
     r"list all (your )?(clients|matters|references|refs)",
+    r"mark (this|the|everything|all)\b.{0,40}\bas\b"
 )
 
 TAG_RE = re.compile(r"<[^>]+>")
