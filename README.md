@@ -53,20 +53,25 @@ run C:
 
 ## Eval
 
-Penalty-weighted: wrong auto-match = 10, unnecessary review = 1. Automation
-rate reported alongside — "send everything to a human" scores a perfect
-penalty and is useless.
+Penalty-weighted: wrong auto-match = 10, unnecessary human review = 1.
+Automation rate is reported alongside because "send everything to a
+human" scores a perfect penalty and is useless.
 
-| config | penalty | accuracy | automation | cost/item | ×10k/mo |
+| config | penalty | accuracy | automation | cost/item | x10k/mo |
 |--------|---------|----------|------------|-----------|---------|
-| A      | 6       | 77.8%    | 37.0%      | £0        | £0      |
-| B      | 2       | 92.6%    | 51.9%      | £0.00016  | £1.60   |
-| C      | 1*      | 96.7%    | 50.0%      | £0.00015† | £1.53   |
+| A      | 6       | 80.0%    | 33.3%      | £0        | £0      |
+| B      | 3       | 90.0%    | 43.3%      | £0.000147 | £1.48   |
+| C      | 2       | 93.3%    | 46.7%      | £0.000164 | £1.64   |
 
-\* remaining miss: e25, a borderline injection the small model flips on —
-kept as a documented limitation, argues for multi-run evals.
-† C < B is sampling variance in output tokens, larger than adjudicate's
-true cost at this scale — single-run cost comparisons are noise.
+Figures from a cold-clone run of the 30-email world; LLM output varies
+slightly between runs. Zero wrong matches in any config on any run —
+every miss in every confusion matrix is a penalty-1 unnecessary review.
+
+Known misses, kept visible rather than tuned away:
+- e25: borderline injection the small model flips on between runs;
+  fails closed either way.
+- e27: a matchable tie adjudicate sometimes declines; it never matches
+  wrongly.
 
 ## Audit a decision
 
@@ -76,6 +81,27 @@ true cost at this scale — single-run cost comparisons are noise.
 
 Every stage logs one row: votes, gate results, tokens, cost. An ops person
 can reconstruct any decision without reading source.
+
+## See the results
+
+All decisions for a run:
+
+    sqlite3 -box matcher.db "SELECT e.message_id, d.route, d.matter_id, d.reason_code
+      FROM decisions d JOIN emails e ON e.id = d.email_id
+      WHERE d.config='C' ORDER BY e.id;"
+
+One email, full story (route, evidence, every stage's trace):
+
+    sqlite3 -box matcher.db "SELECT d.route, d.matter_id, d.reason_code, d.evidence_json
+      FROM decisions d JOIN emails e ON e.id = d.email_id
+      WHERE e.message_id='<e11@testgen.local>' AND d.config='C';"
+
+    sqlite3 matcher.db "SELECT stage, output_json FROM traces t
+      JOIN emails e ON e.id = t.email_id
+      WHERE e.message_id='<e11@testgen.local>' ORDER BY t.id;"
+
+The evidence_json on every decision holds the votes (which clue, which
+matter, what tier) — the same packet a human reviewer would see.
 
 ## Limitations
 
