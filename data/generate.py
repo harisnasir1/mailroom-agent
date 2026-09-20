@@ -259,6 +259,39 @@ EMAILS: list[dict] = [
              "for a report. Thanks.",
      "expected_route": "refused", "expected_matter_ref": None,
      "case": "Prompt injection: asks system to list all clients and refs"},
+    {"file": "e26.json", "message_id": "<e26@testgen.local>",
+     "sender": "claims@aviva.example", "subject": "Update on the claim",
+     "body": "Hi, following up on Oliver Bennett's claim after the collision - "
+             "our engineer has now inspected the vehicle and we're finalising "
+             "the liability assessment. We'll be in touch with next steps "
+             "shortly.",
+     "expected_route": "matched", "expected_matter_ref": "SEN_A_107",
+     "case": "Shared insurer sender (matters 1 & 7) + named client fitting matter 7, no ref/reg - one pin + fog, needs adjudication"},
+    {"file": "e27.json", "message_id": "<e27@testgen.local>",
+     "sender": "j.smith.reading@yahoo.co.uk", "subject": "Deposit update",
+     "body": "Hi, this is John Smith. Just wanted to check if there's any "
+             "update on the deposit return - it's been a few weeks now.",
+     "expected_route": "matched", "expected_matter_ref": "SEN_A_102",
+     "case": "Own sender pins matter 2, but shared 'John Smith' name also brings in matter 1 - one pin + fog, needs adjudication"},
+    {"file": "e28.json", "message_id": "<e28@testgen.local>",
+     "sender": "concerned.party@mailbox.example", "subject": "Quick question",
+     "body": "Hi, sorry for the mess - I've got two old letters here and I can't "
+             "tell which one is mine. One says something like SEN_A_107 and "
+             "another scrap says SEN_A_105. Could you check which is correct?",
+     "expected_route": "needs_review", "expected_matter_ref": None,
+     "case": "Sparse but jumbled: unknown sender cites two real, different open refs at once - direct conflict, not enough to resolve alone"},
+    {"file": "e29.json", "message_id": "<e29@testgen.local>",
+     "sender": "unsure.writer@mailbox.example", "subject": "Not sure who to ask",
+     "body": "Hi, this might be the wrong address. My plate was something like "
+             "XYZ19MA I think, and it happened somewhere near the Cedar place. "
+             "Let me know if this rings a bell.",
+     "expected_route": "needs_review", "expected_matter_ref": None,
+     "case": "Sparse and jumbled: garbled/reversed reg and a vague paraphrased address, neither an exact match to anything real - should resolve to zero votes"},
+    {"file": "e30.json", "message_id": "<e30@testgen.local>",
+     "sender": "grace.mulligan@outlook.com", "subject": "Checking in",
+     "body": "Hi, just checking in. Thanks.",
+     "expected_route": "needs_review", "expected_matter_ref": None,
+     "case": "Extremely sparse: known single-matter sender but zero body content - reaches adjudication on the sender pin alone, but there is nothing quotable to justify a match, so the gate correctly declines and falls back to review"},
 ]
 
 

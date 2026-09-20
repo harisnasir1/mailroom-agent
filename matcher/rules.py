@@ -30,21 +30,31 @@ def decide(matter_votes:list[Vote],closed_refs:list[dict],injection_flag:bool,ex
     elif len(matter_votes)==0 and (extracted is not None and extracted.is_matter_related==False):
         return Decision(route="refused",matter_id=None,reason_code="not_matter_related")
 
-    elif len({mid for v in matter_votes if v.tier in ("decisive","specific") for mid in v.matter_ids})>1:
-        return Decision(route="needs_review",matter_id=None,reason_code="conflict")
+    elif len(pinned :={mid for v in matter_votes if v.tier in ("decisive","specific") for mid in v.matter_ids})>1:       # when two clues point to two different matters
+        return Decision(route="needs_review",matter_id=None,reason_code="conflict")                                      # this doesn not mean shared conflict caught here it will bel ike this 
+                                                                                                                         # refno:xyz matterids={2} if it is like this refno:xyz matterids={2,3} then it is shared
+                                                                                                                         # conflict only coccur like this xyz reg points to matter ={2} is it si decisive 
+                                                                                                                         # if it was sender and it can point to {4} matter id and it is specific  
 
-    elif len(closed_refs)>0 and not any(v.tier=="decisive" for v in matter_votes):
+    elif len(closed_refs)>0 and not any(v.tier=="decisive" for v in matter_votes):                                          #when case is close and there is no other strong clue exists 
         return Decision(route="needs_review",matter_id=None,reason_code="closed_matter")
 
     elif len(decisive_matters:={mid for v in matter_votes if v.tier=="decisive" for mid in v.matter_ids})==1 and not any(mid not in decisive_matters for v in matter_votes if v.tier=="specific" for mid in v.matter_ids) and sender_known:
-        return Decision(route="matched",matter_id=next(iter(decisive_matters)),reason_code="decisive_identifier")
-
+        return Decision(route="matched",matter_id=next(iter(decisive_matters)),reason_code="decisive_identifier")      # match using identifier , one identifier points to only one case
+                                                                                                                       # if there are 2 or more poiting out to other case tehn we get confilct but that will get caught in prev step
     elif len(specific_matters:={mid for v in matter_votes if v.tier=="specific" for mid in v.matter_ids})==1 and len({v.field for v in matter_votes if v.tier=="specific"})>=2 and sender_known:
-        return Decision(route="matched",matter_id=next(iter(specific_matters)),reason_code="corroborated")
-
+        return Decision(route="matched",matter_id=next(iter(specific_matters)),reason_code="corroborated")      #match using 2 specific clues pointing to one matter . specific by name , sender and sender known
+                                                                                                                # by the time execution come here we can be certain that we don't have any conflicts then all the evidence points to 1 mattter here
+                                                                                                                #but we need two specific votes to do that 
+                                                                                                                #we can not only trust 1 clue that will be process in rule 9 now
     elif sender_known==False:
-        return Decision(route="needs_review",matter_id=None,reason_code="new_sender")
+        return Decision(route="needs_review",matter_id=None,reason_code="new_sender")                     # if sneder is unkown we need human to review it no matter how good clue looks like ( we can send it to second ai to look at clues and then decide)
 
+    elif len(pinned) <= 1 and 1 <= len(candidates := pinned | {mid for v in matter_votes if v.tier == "shared" for mid in v.matter_ids}) <= 3:
+        return Decision(route="needs_review", matter_id=None, reason_code="tie")
+             # thin-but-real evidence: 1 pin, or fog over 2-3 files. AI reads, gate checks.
+             # fog over 4+ files -> too ambiguous, falls through to review. Never slice
+             # the candidate set - dropping one might drop the right answer.
     else:
         return Decision(route="needs_review",matter_id=None,reason_code="insufficient_evidence")
 

@@ -45,25 +45,30 @@ def _penalty(gold_route: str, gold_matter_id: int | None, system_route: str, sys
 
 
 def _latest_run_id_for_config(conn: sqlite3.Connection, config: str) -> str | None:
-    # 'lookup'/'refscan' traces are config-agnostic and get rewritten on
-    # every run.py invocation regardless of config, so the "latest" one for
-    # an email decided under this config can actually belong to a later run
-    # of a DIFFERENT config that touched the same email. 'extract' traces
-    # don't have that problem: only config='B' ever calls extract_one, so
-    # they're an unambiguous fingerprint of a config=B run. Config A never
-    # calls the LLM at all (a guarantee from run.py's own code, not
-    # something to infer), so it has no cost-bearing run to find here.
-    if config != "B":
+    # decisions has no run_id column, and 'extract'/'lookup'/'refscan'
+    # traces are config-agnostic - every run.py invocation rewrites them
+    # for whatever email it touches, regardless of config. Once more than
+    # one config calls extract_one for the same email (B and C both do),
+    # "the latest extract trace for this email" can belong to a LATER
+    # config's run, not this one's. Bound the search to traces created at
+    # or before this config's own last decision was recorded, so a config
+    # that ran afterwards can't leak in; break ties by id (insertion order)
+    # since created_at only has 1-second resolution.
+    if config == "A":
         return None
     row = conn.execute(
-        "SELECT email_id FROM decisions WHERE config = ? ORDER BY id DESC LIMIT 1",
+        "SELECT email_id, created_at FROM decisions WHERE config = ? ORDER BY id DESC LIMIT 1",
         (config,),
     ).fetchone()
     if row is None:
         return None
     trace_row = conn.execute(
-        "SELECT run_id FROM traces WHERE email_id = ? AND stage = 'extract' ORDER BY id DESC LIMIT 1",
-        (row["email_id"],),
+        """
+        SELECT run_id FROM traces
+        WHERE email_id = ? AND stage = 'extract' AND created_at <= ?
+        ORDER BY created_at DESC, id DESC LIMIT 1
+        """,
+        (row["email_id"], row["created_at"]),
     ).fetchone()
     return trace_row["run_id"] if trace_row else None
 

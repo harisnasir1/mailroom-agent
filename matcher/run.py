@@ -6,6 +6,7 @@ from datetime import datetime, timezone
 
 from db.db import connect
 from matcher.act import apply_decision
+from matcher.adjudicate import adjudicate
 from matcher.clean import _clean_row
 from matcher.extract import extract_one
 from matcher.lookup import load_world, lookup_email
@@ -13,7 +14,7 @@ from matcher.refscan import resolve as refscan_resolve
 from matcher.refscan import scan_refs
 from matcher.rules import _sender_known, decide
 
-VALID_CONFIGS = ("A", "B")
+VALID_CONFIGS = ("A", "B", "C")
 BODY_PREVIEW_CHARS = 200
 
 
@@ -76,7 +77,7 @@ def _process_email(conn: sqlite3.Connection, world, run_id: str, config: str, ro
     sender = row["sender"] or ""
     called_llm = False
 
-    if config == "B":
+    if config in ("B", "C"):
         extracted, outcome = extract_one(
             conn, run_id, email_id, row["subject"], body_new, sender, refs, injection_flag
         )
@@ -97,6 +98,12 @@ def _process_email(conn: sqlite3.Connection, world, run_id: str, config: str, ro
         extract_attempted,
         sender_known,
     )
+
+    if config == "C" and decision.reason_code == "tie":
+        decision = adjudicate(
+            conn, run_id, email_id, lookup_result.all_votes, extracted, body_new, injection_flag
+        )
+        called_llm = True
 
     clean_data = _latest_output_json(conn, email_id, "clean")
     injection_patterns = clean_data.get("injection", []) if clean_data else []
@@ -140,7 +147,7 @@ def run(config: str) -> None:
         route, called_llm = _process_email(conn, world, run_id, config, row)
         processed_count += 1
         route_counts[route] = route_counts.get(route, 0) + 1
-        if config == "B":
+        if config in ("B", "C"):
             if called_llm:
                 llm_calls += 1
             else:
@@ -162,7 +169,7 @@ def run(config: str) -> None:
     print(f"run_id={run_id} config={config}")
     print(f"processed={processed_count} already_decided_skipped={already_decided_count}")
     print("routes: " + (" ".join(f"{r}={c}" for r, c in sorted(route_counts.items())) or "(none)"))
-    if config == "B":
+    if config in ("B", "C"):
         print(f"llm_calls={llm_calls} llm_skipped={llm_skipped}")
     print(
         f"tokens={total_tokens} cost_usd={total_cost:.6f} "
@@ -177,6 +184,6 @@ if __name__ == "__main__":
         if args[0] == "--config" and len(args) > 1:
             config = args[1]
         else:
-            print("usage: python -m matcher.run [--config A|B]")
+            print("usage: python -m matcher.run [--config A|B|C]")
             raise SystemExit(1)
     run(config)
