@@ -3,64 +3,79 @@
 Routes inbound legal correspondence to the right case file — or to a human
 when it shouldn't decide alone.
 
-An agent pipeline built as a practice take-home: ingest a mailbox, extract
-facts, match against open matters, and route every email to
-**matched / needs_review / refused** with evidence, cost tracking, and an
-eval that prices mistakes differently.
+Pipeline: ingest a mailbox, extract facts, match against open matters, route
+every email to **matched / needs_review / refused** — with evidence, cost
+tracking, and a penalty-weighted eval.
 
-Design rule the whole system follows: **AI reads and proposes. Code counts
-and decides.** The model never sees the full case list, never writes to the
-database, and never makes a final call.
+Design rule: **AI reads and proposes. Code counts and decides.** The model
+never sees the full case list, never writes to the database, never makes a
+final call.
 
-## How to run
+## Run
 
     python -m venv .venv && source .venv/bin/activate
     pip install -r requirements.txt
-    cp .env.example .env          # add your Anthropic API key
-    python data/generate.py       # builds the synthetic world (seed 42)
-    python -m matcher.ingest      # TODO: replace with single run command
-    python -m matcher.clean
-    # TODO: further stages as they land / final: python -m matcher.run --config C
+    cp .env.example .env                 # add your API key
+    python data/generate.py              # deterministic world, seed 42
+    python -m matcher.run --config C     # full pipeline
+    python -m matcher.run --config C     # rerun: all skipped, £0 — idempotent
+    python -m eval.run_eval              # A/B/C comparison vs gold
 
-Re-running is safe by design: ingest skips known message_ids, decisions are
-unique per (email, config). Run twice — the second run is a no-op. To reset
-the world: run generate.py again.
+Configs: A = rules only (no LLM) · B = + extract · C = + adjudicate on ties.
+Reset the world anytime: rerun generate.py.
 
-## The pipeline
+## Pipeline
 
-    ingest → clean → ref scan → extract(LLM) → lookup → rules
-                                   → adjudicate(LLM, ties only) → gate → act
+    ingest → clean → ref scan → [extract LLM] → lookup → rules
+                                 → [adjudicate LLM, ties only → gate] → act
 
-Cheap path: a clean ref from a known contact never touches the LLM.
-Fail-closed: timeouts, invalid JSON, conflicts, and injection flags can
-only downgrade an email toward human review — never upgrade to matched.
+- Clean ref + known sender skips the LLM entirely (cost path).
+- Fail-closed: timeouts, bad JSON, conflicts, injection flags only ever
+  downgrade toward human review — never upgrade to matched.
+- Adjudicate's proposals are gate-checked in code: candidate must be in the
+  list, quotes must be verbatim substrings, no injection flag.
 
 ## Data
 
-Fully synthetic. `data/generate.py` (seeded, deterministic) creates 15
-matters, ~45 identifiers, and 25 mailbox emails including planted typos,
-conflicting refs, a shared client name, quoted-chain traps, and prompt
-injections. `MANIFEST.md` lists every planted case; `eval/gold.json` is
-the answer key. No real data anywhere.
+Fully synthetic, generated (seed 42): 15 matters, ~45 identifiers, 30
+mailbox emails with planted typos, conflicting refs, shared names,
+quoted-chain traps, and prompt injections. `MANIFEST.md` lists every case;
+`eval/gold.json` is the answer key.
+
+Hand-written unseen tests in `tests/handwritten/` — copy into `mailbox/`,
+run C:
+- **t01** messy client email, thin evidence → adjudicate declines → review
+- **t02** real client quoting the wrong John Smith's ref → conflict, never auto-filed
+- **t03** shared insurer sender, two candidates → adjudicate picks, gate verifies → matched
 
 ## Eval
 
-    python eval/run_eval.py      # TODO once built
+Penalty-weighted: wrong auto-match = 10, unnecessary review = 1. Automation
+rate reported alongside — "send everything to a human" scores a perfect
+penalty and is useless.
 
-Compares configs (A: rules only / B: +extract / C: +adjudicate) on the
-same gold set. Metric: penalty-weighted errors — wrong auto-match costs
-10, unnecessary human review costs 1 — plus automation rate and cost per
-item. Automation rate is reported because "send everything to a human"
-scores a perfect penalty and is useless.
+| config | penalty | accuracy | automation | cost/item | ×10k/mo |
+|--------|---------|----------|------------|-----------|---------|
+| A      | 6       | 77.8%    | 37.0%      | £0        | £0      |
+| B      | 2       | 92.6%    | 51.9%      | £0.00016  | £1.60   |
+| C      | 1*      | 96.7%    | 50.0%      | £0.00015† | £1.53   |
 
-## Status
+\* remaining miss: e25, a borderline injection the small model flips on —
+kept as a documented limitation, argues for multi-run evals.
+† C < B is sampling variance in output tokens, larger than adjudicate's
+true cost at this scale — single-run cost comparisons are noise.
 
-Working: schema, generator, ingest, clean.        # TODO keep current
-Next: ref scan, extract, lookup, rules, gate, act, eval.
+## Audit a decision
+
+    sqlite3 matcher.db "SELECT stage, output_json FROM traces t
+      JOIN emails e ON e.id=t.email_id
+      WHERE e.message_id='<e11@testgen.local>' ORDER BY t.id;"
+
+Every stage logs one row: votes, gate results, tokens, cost. An ops person
+can reconstruct any decision without reading source.
 
 ## Decisions
 
-See DECISION_LOG.md for cuts and trade-offs (history emails cut,
-identifier auto-learning cut, injection routing rule, SQLite over
-Postgres, etc).        # TODO write this file — you have ~10 entries
-                       # already decided in this build
+DECISION_LOG.md — the cuts and trade-offs (SQLite over Postgres, identifier
+auto-learning cut + poisoning defence, quoted text never votes, conflict is
+terminal, scaling ladder for lookup, …).
