@@ -99,7 +99,7 @@ def _fuzzy_name_in_text(name: str, text: str) -> bool:
 def _assign_tier(field_name: str, matter_ids: list[int], location: str) -> str:
     if len(matter_ids) >= 2:
         return "shared"
-    if field_name in _DECISIVE_TYPES and location == "new":
+    if field_name in _DECISIVE_TYPES :
         return "decisive"
     return "specific"
 
