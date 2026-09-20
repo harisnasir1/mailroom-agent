@@ -16,10 +16,13 @@ final call.
     python -m venv .venv && source .venv/bin/activate
     pip install -r requirements.txt
     cp .env.example .env                 # add your API key
-    python data/generate.py              # deterministic world, seed 42
-    python -m matcher.run --config C     # full pipeline
-    python -m matcher.run --config C     # rerun: all skipped, £0 — idempotent
-    python -m eval.run_eval              # A/B/C comparison vs gold
+    python -m data.generate             # creates matcher.db, seeds world, writes mailbox
+    python -m matcher.ingest            # loads mailbox into the db (idempotent)
+    python -m matcher.run --config A
+    python -m matcher.run --config B
+    python -m matcher.run --config C
+    python -m matcher.run --config C    # rerun: all skipped, idempotent
+    python -m eval.run_eval
 
 Configs: A = rules only (no LLM) · B = + extract · C = + adjudicate on ties.
 Reset the world anytime: rerun generate.py.

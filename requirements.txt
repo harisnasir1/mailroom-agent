@@ -4,3 +4,4 @@ tenacity               # retries with backoff
 rapidfuzz              # fuzzy client names
 python-dotenv          # load .env
 anthropic              # or openai — whichever key you'll use
+requests  
