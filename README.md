@@ -74,8 +74,12 @@ true cost at this scale — single-run cost comparisons are noise.
 Every stage logs one row: votes, gate results, tokens, cost. An ops person
 can reconstruct any decision without reading source.
 
-## Decisions
+## Limitations
 
-DECISION_LOG.md — the cuts and trade-offs (SQLite over Postgres, identifier
-auto-learning cut + poisoning defence, quoted text never votes, conflict is
-terminal, scaling ladder for lookup, …).
+- Identifiers are seeded, never learned. The loop that promotes evidence
+  from confirmed matches into matter_identifiers is designed (with a
+  poisoning defence) but not built. See DECISION_LOG entry 3.
+- One planted attack (e25) flips between runs on the small model. Kept
+  as a visible miss; it fails closed either way.
+- No PDFs or attachments, no threading headers, no new client intake,
+  English only. Full cut list in DECISION_LOG.
